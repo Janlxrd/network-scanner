@@ -17,7 +17,7 @@ It scans when you click Scan. Nothing runs in the background.
 
 ## Install
 
-Download `NetworkScanner-Setup.exe` from the [Releases](../../releases) page and run it. It installs everything it needs, including the .NET runtime, so you don't have to install anything first.
+Download [NetworkScanner-Setup.exe](../../releases/latest/download/NetworkScanner-Setup.exe) from the latest release and run it. Older versions are on the [Releases](../../releases) page. It installs everything it needs, including the .NET runtime, so you don't have to install anything first.
 
 The installer isn't code-signed yet, so Windows SmartScreen will warn you the first time. Click "More info", then "Run anyway".
 
@@ -50,11 +50,24 @@ Build the installer. This runs the tests, publishes a self-contained build and w
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
+`build.ps1` takes an optional version, for example `-Version 1.2.0`. Without it the version is 1.0.0.
+
 To refresh the vendor list from the IEEE registry:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/update-oui.ps1
 ```
+
+## Releases
+
+Releases are built by GitHub Actions (`.github/workflows/release.yml`). Push a tag that starts with `v` and the workflow builds the installer on Windows, runs the tests and publishes a release with `NetworkScanner-Setup.exe` attached:
+
+```powershell
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+The version shown in the app and the installer comes from the tag.
 
 ## How it works
 

@@ -1,7 +1,12 @@
+#ifndef AppVersion
+  #define AppVersion "1.0.0"
+#endif
+
 [Setup]
 AppId={{6F0C8E43-3B4A-4C1E-9D7A-5B2E8A1C4F90}
 AppName=Network Scanner
-AppVersion=1.0.0
+AppVersion={#AppVersion}
+VersionInfoVersion={#AppVersion}
 AppPublisher=janiqwa
 AppCopyright=Copyright (c) 2026 janiqwa
 DefaultDirName={autopf}\Network Scanner
