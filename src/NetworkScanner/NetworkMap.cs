@@ -31,13 +31,17 @@ public sealed class NetworkMap : FrameworkElement
         nameof(UpstreamRouters), typeof(IReadOnlyList<string>), typeof(NetworkMap),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    public static readonly DependencyProperty SweepProperty = DependencyProperty.Register(
+        nameof(Sweep), typeof(double), typeof(NetworkMap),
+        new FrameworkPropertyMetadata(-1.0, FrameworkPropertyMetadataOptions.AffectsRender));
+
     static readonly Typeface TextFace = new("Segoe UI");
     static readonly Typeface IconFace = new(DeviceIcons.Font, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
     readonly List<(DeviceItem Item, Point World)> hitNodes = new();
     readonly ToolTip tip = new() { Placement = PlacementMode.Mouse };
     Brush text = Brushes.Black, secondary = Brushes.Gray, accent = Brushes.Blue, online = Brushes.Green, panel = Brushes.White;
-    Pen nodePen = new(), linePen = new(), dashedPen = new(), selectedPen = new();
+    Pen nodePen = new(), linePen = new(), dashedPen = new(), selectedPen = new(), sweepPen = new();
     double scale = 1;
     Vector pan;
     bool userMoved;
@@ -71,6 +75,12 @@ public sealed class NetworkMap : FrameworkElement
         set => SetValue(UpstreamRoutersProperty, value);
     }
 
+    public double Sweep
+    {
+        get => (double)GetValue(SweepProperty);
+        set => SetValue(SweepProperty, value);
+    }
+
     static void OnItemsSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var map = (NetworkMap)d;
@@ -92,6 +102,9 @@ public sealed class NetworkMap : FrameworkElement
         linePen = new Pen(line, 1.2);
         dashedPen = new Pen(line, 1.2) { DashStyle = new DashStyle(new double[] { 4, 4 }, 0) };
         selectedPen = new Pen(accent, 2);
+        var sweep = accent.Clone();
+        sweep.Opacity = 0.55;
+        sweepPen = new Pen(sweep, 1.5);
     }
 
     protected override void OnRender(DrawingContext dc)
@@ -115,6 +128,12 @@ public sealed class NetworkMap : FrameworkElement
 
         Point S(double x, double y) => new(RenderSize.Width / 2 + pan.X + x * scale, RenderSize.Height / 2 + pan.Y + y * scale);
         var origin = S(0, 0);
+
+        if (Sweep >= 0)
+        {
+            var reach = Math.Max(outer, RingSpacing) * Math.Min(1, Sweep / 0.85);
+            if (reach > NodeRadius * 1.6) dc.DrawEllipse(null, sweepPen, origin, reach * scale, reach * scale);
+        }
 
         dc.DrawLine(linePen, origin, S(0, internetY));
         for (var i = 0; i < devices.Count; i++)

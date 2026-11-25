@@ -19,6 +19,8 @@ It scans when you click Scan. Nothing runs in the background.
 
 Download [NetworkScanner-Setup.exe](../../releases/latest/download/NetworkScanner-Setup.exe) from the latest release and run it. Older versions are on the [Releases](../../releases) page. It installs everything it needs, including the .NET runtime, so you don't have to install anything first.
 
+To update, repair or uninstall, run the installer again and pick what you want. You can also uninstall from Installed apps in Windows Settings.
+
 The installer isn't code-signed yet, so Windows SmartScreen will warn you the first time. Click "More info", then "Run anyway".
 
 Requires Windows 10 or 11 (64-bit). The app itself runs without admin rights.

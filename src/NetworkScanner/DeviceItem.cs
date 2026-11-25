@@ -7,13 +7,14 @@ namespace NetworkScanner;
 
 public sealed class DeviceItem
 {
-    public DeviceItem(DeviceStatus status)
+    public DeviceItem(DeviceStatus status, bool checking = false)
     {
         var d = status.Device;
         Device = d;
         Key = d.Key;
         Kind = d.EffectiveKind;
         Online = status.Online;
+        Checking = checking && !status.Online;
         Name = DeviceText.DisplayName(d);
         Ip = d.Ip;
         IpSort = IPAddress.TryParse(d.Ip, out var ip) ? IpUtil.ToUInt32(ip) : uint.MaxValue;
@@ -28,8 +29,8 @@ public sealed class DeviceItem
         FirstSeen = Format(d.FirstSeen);
         KindText = DeviceIcons.Label(Kind);
         Glyph = DeviceIcons.Glyph(Kind);
-        StatusTag = !status.Online ? "Offline" : status.LatencyMs is { } tagMs ? $"Online · {tagMs} ms" : "Online";
-        RowOpacity = status.Online ? 1 : 0.5;
+        StatusTag = Checking ? "Checking" : !status.Online ? "Offline" : status.LatencyMs is { } tagMs ? $"Online · {tagMs} ms" : "Online";
+        RowOpacity = status.Online ? 1 : Checking ? 0.7 : 0.5;
         var (fill, fore) = DeviceIcons.Tint(Kind, ThemeSwitcher.Current == AppSettings.Dark);
         TileFill = Frozen(fill);
         TileFore = Frozen(fore);
@@ -54,6 +55,7 @@ public sealed class DeviceItem
     public string KindText { get; }
     public string Glyph { get; }
     public bool Online { get; }
+    public bool Checking { get; }
     public string StatusText => Online ? "Online" : "Offline";
     public string Name { get; }
     public string Ip { get; }

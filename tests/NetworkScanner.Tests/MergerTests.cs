@@ -80,6 +80,18 @@ public class MergerTests
     }
 
     [Fact]
+    public void Preview_ShowsScanWithoutChangingStore()
+    {
+        DeviceMerger.Merge(store, Scan(D("40", "DC:A6:32:00:00:05")), Oui, T0);
+        var result = DeviceMerger.Preview(store, Scan(D("41", "DC:A6:32:00:00:06")), Oui, T1);
+        Assert.True(result.Single(x => x.Device.Ip == "192.168.1.41").Online);
+        Assert.False(result.Single(x => x.Device.Ip == "192.168.1.40").Online);
+        var saved = store.Networks.Single().Devices;
+        Assert.DoesNotContain(saved, d => d.Ip == "192.168.1.41");
+        Assert.Equal(T0, saved.Single(d => d.Ip == "192.168.1.40").LastSeen);
+    }
+
+    [Fact]
     public void Merge_ResultOrderedByIpNumerically()
     {
         var result = DeviceMerger.Merge(store, Scan(D("100", "00:00:01:00:00:64"), D("9", "00:00:01:00:00:09")), Oui, T0);

@@ -11,7 +11,7 @@ public sealed record ScanResult(
     bool Capped,
     bool Cancelled);
 
-public sealed record ScanProgress(int Done, int Total, string Stage);
+public sealed record ScanProgress(int Done, int Total, string Stage, IReadOnlyList<ScannedDevice>? Devices = null);
 
 public interface IProbes
 {

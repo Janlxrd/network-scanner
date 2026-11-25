@@ -92,6 +92,20 @@ public class ScannerTests
     }
 
     [Fact]
+    public async Task ScanAsync_ReportsDevicesAsFoundAndNamed()
+    {
+        var p = new FakeProbes();
+        p.Arp[A("40")] = M("DC:A6:32:00:00:40");
+        p.Names[A("40")] = "raspberrypi.local";
+        var progress = new SyncProgress();
+        await new Scanner(p).ScanAsync(Net, progress, CancellationToken.None);
+        var snapshots = progress.Reports.Where(r => r.Devices is not null).ToList();
+        Assert.Contains(snapshots, r => r.Stage == "Finding devices" && r.Devices!.Any(d => d.Ip.Equals(A("40")) && d.Hostname == null));
+        Assert.Contains(snapshots, r => r.Stage == "Looking up names" && r.Devices!.Any(d => d.Ip.Equals(A("40")) && d.Hostname == "raspberrypi"));
+        Assert.Equal(253, progress.Reports.Count(r => r.Stage == "Finding devices" && r.Done > 0));
+    }
+
+    [Fact]
     public async Task ScanAsync_Cancelled_ReturnsPartialResult()
     {
         var p = new FakeProbes { Hang = A("99") };

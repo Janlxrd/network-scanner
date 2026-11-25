@@ -20,10 +20,7 @@ jobs:
 
       - name: Install Inno Setup
         shell: pwsh
-        run: |
-          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
-            choco install innosetup -y --no-progress
-          }
+        run: choco upgrade innosetup -y --no-progress
 
       - name: Build installer
         shell: pwsh

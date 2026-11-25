@@ -59,6 +59,9 @@ public static class DeviceMerger
             .ToList();
     }
 
+    public static IReadOnlyList<DeviceStatus> Preview(DeviceStore store, ScanResult scan, OuiDatabase oui, DateTimeOffset now) =>
+        Merge(store.Copy(), scan, oui, now);
+
     public static void SetCustom(KnownDevice device, string? name, DeviceKind? kind)
     {
         device.CustomName = string.IsNullOrWhiteSpace(name) ? null : name.Trim();

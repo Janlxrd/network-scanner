@@ -16,31 +16,42 @@ public sealed class Scanner(IProbes probes, int parallelism = 256)
         var hosts = range.Hosts.Where(h => !h.Equals(net.Address)).ToList();
         var found = new ConcurrentDictionary<IPAddress, (MacAddress? Mac, int? Ms)>();
         found[net.Address] = (net.Mac, 0);
+        var names = new ConcurrentDictionary<IPAddress, string>();
         var trace = probes.TraceUpstreamAsync(net.Gateway, ct);
 
-        async Task Probe(IPAddress ip)
+        IReadOnlyList<ScannedDevice> Snapshot() => found
+            .Select(kv => new ScannedDevice(kv.Key, kv.Value.Mac, names.GetValueOrDefault(kv.Key), kv.Value.Ms))
+            .OrderBy(d => IpUtil.ToUInt32(d.Ip))
+            .ToList();
+
+        async Task<bool> Probe(IPAddress ip)
         {
             var arp = probes.ArpAsync(ip, ct);
             var ping = probes.PingAsync(ip, ct);
             await Task.WhenAll(arp, ping);
-            if (arp.Result is not null || ping.Result is not null) found[ip] = (arp.Result, ping.Result);
+            if (arp.Result is null && ping.Result is null) return false;
+            found[ip] = (arp.Result, ping.Result);
+            return true;
         }
 
         var done = 0;
-        progress?.Report(new ScanProgress(0, hosts.Count, FindingStage));
+        progress?.Report(new ScanProgress(0, hosts.Count, FindingStage, Snapshot()));
         var sweep = Bounded(hosts, async ip =>
         {
-            await Probe(ip);
-            if (!ct.IsCancellationRequested) progress?.Report(new ScanProgress(Interlocked.Increment(ref done), hosts.Count, FindingStage));
+            var hit = await Probe(ip);
+            if (!ct.IsCancellationRequested)
+                progress?.Report(new ScanProgress(Interlocked.Increment(ref done), hosts.Count, FindingStage, hit ? Snapshot() : null));
         }, ct);
         var completed = await Finish(sweep, ct);
 
-        var names = new ConcurrentDictionary<IPAddress, string>();
         var named = 0;
         Task Lookup(IReadOnlyCollection<IPAddress> ips, int total) => Bounded(ips, async ip =>
         {
-            if (HostName.Normalize(await probes.ResolveNameAsync(ip, ct)) is { } name) names[ip] = name;
-            if (!ct.IsCancellationRequested) progress?.Report(new ScanProgress(Interlocked.Increment(ref named), total, NamesStage));
+            var name = HostName.Normalize(await probes.ResolveNameAsync(ip, ct));
+            var hit = name is not null;
+            if (name is not null) names[ip] = name;
+            if (!ct.IsCancellationRequested)
+                progress?.Report(new ScanProgress(Interlocked.Increment(ref named), total, NamesStage, hit ? Snapshot() : null));
         }, ct);
 
         if (completed)
@@ -49,7 +60,12 @@ public sealed class Scanner(IProbes probes, int parallelism = 256)
             var again = (retry ?? Array.Empty<IPAddress>()).Distinct().Where(ip => inRange.Contains(ip) && !found.ContainsKey(ip)).ToList();
             var online = found.Keys.ToList();
             progress?.Report(new ScanProgress(0, online.Count + again.Count, NamesStage));
-            completed = await Finish(Task.WhenAll(Bounded(again, Probe, ct), Lookup(online, online.Count + again.Count)), ct);
+            var wake = Bounded(again, async ip =>
+            {
+                if (await Probe(ip) && !ct.IsCancellationRequested)
+                    progress?.Report(new ScanProgress(named, online.Count + again.Count, NamesStage, Snapshot()));
+            }, ct);
+            completed = await Finish(Task.WhenAll(wake, Lookup(online, online.Count + again.Count)), ct);
             if (completed)
             {
                 var woke = again.Where(found.ContainsKey).ToList();
@@ -58,10 +74,7 @@ public sealed class Scanner(IProbes probes, int parallelism = 256)
         }
 
         var upstream = await Finish(trace, ct) ? trace.Result : Array.Empty<IPAddress>();
-        var devices = found
-            .Select(kv => new ScannedDevice(kv.Key, kv.Value.Mac, names.GetValueOrDefault(kv.Key), kv.Value.Ms))
-            .OrderBy(d => IpUtil.ToUInt32(d.Ip))
-            .ToList();
+        var devices = Snapshot();
         progress?.Report(new ScanProgress(1, 1, DoneStage));
         return new ScanResult(net, devices, upstream, range.Capped, !completed);
     }

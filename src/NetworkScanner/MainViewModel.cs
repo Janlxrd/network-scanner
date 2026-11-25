@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -22,6 +24,8 @@ public partial class MainViewModel : ObservableObject
     IReadOnlyList<DeviceStatus> shown = Array.Empty<DeviceStatus>();
     LocalNetwork? network;
     CancellationTokenSource? scanCts;
+    bool live;
+    string? scanError;
 
     [ObservableProperty]
     string networkText = "";
@@ -46,10 +50,29 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ScanButtonText))]
+    [NotifyPropertyChangedFor(nameof(Sweep))]
+    [NotifyCanExecuteChangedFor(nameof(ForgetCommand))]
+    [NotifyCanExecuteChangedFor(nameof(EditCommand))]
     bool isScanning;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Sweep))]
     double progress;
+
+    [ObservableProperty]
+    string scanText = "";
+
+    [ObservableProperty]
+    bool isEmpty;
+
+    [ObservableProperty]
+    string emptyTitle = "";
+
+    [ObservableProperty]
+    string emptyText = "";
+
+    [ObservableProperty]
+    string? emptyButtonText;
 
     [ObservableProperty]
     string statusText = "";
@@ -83,6 +106,8 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<DeviceItem> Devices { get; } = new();
 
     public string ScanButtonText => IsScanning ? "Stop" : "Scan";
+
+    public double Sweep => IsScanning ? Progress : -1;
 
     public async Task StartAsync()
     {
@@ -121,8 +146,7 @@ public partial class MainViewModel : ObservableObject
     void UpdateNetworkText()
     {
         if (network is null) return;
-        var scanned = lastScan is { } t ? $" · scanned at {t.ToLocalTime():HH:mm}" : "";
-        NetworkText = $"{network.AdapterName} · {network.Address} · gateway {network.Gateway}{scanned}";
+        NetworkText = $"{network.AdapterName} · {network.Address} · gateway {network.Gateway}";
     }
 
     partial void OnSelectedChanged(DeviceItem? value) => IsEditing = false;
@@ -158,7 +182,7 @@ public partial class MainViewModel : ObservableObject
         IsEditing = true;
     }
 
-    bool HasSelection() => Selected is not null;
+    bool HasSelection() => Selected is not null && !IsScanning;
 
     [RelayCommand]
     void SaveEdit()
@@ -193,16 +217,19 @@ public partial class MainViewModel : ObservableObject
         TrySave();
     }
 
-    bool CanForget() => Selected is { Online: false };
+    bool CanForget() => Selected is { Online: false } && !IsScanning;
 
     async Task RunScanAsync()
     {
         if (IsScanning) return;
+        scanError = null;
         if (DetectNetwork()) Show(DeviceMerger.Saved(store, network!));
         if (network is null)
         {
             Devices.Clear();
             StatusText = "";
+            ScanText = "";
+            UpdateEmpty();
             return;
         }
 
@@ -210,16 +237,31 @@ public partial class MainViewModel : ObservableObject
         scanCts = new CancellationTokenSource();
         IsScanning = true;
         Progress = 0;
+        live = true;
+        Show(shown);
+        ScanText = "Starting scan";
+        var clock = Stopwatch.StartNew();
+        var found = 0;
         var progress = new Progress<ScanProgress>(p =>
         {
-            StatusText = p.Stage == Scanner.DoneStage ? StatusText : p.Stage + "...";
-            var fraction = p.Total == 0 ? 1 : (double)p.Done / p.Total;
-            Progress = p.Stage switch
+            if (!live) return;
+            if (p.Devices is { } snapshot)
             {
-                Scanner.FindingStage => 0.85 * fraction,
-                Scanner.NamesStage => 0.85 + 0.15 * fraction,
-                _ => 1,
-            };
+                found = snapshot.Count;
+                var partial = new ScanResult(net, snapshot, Array.Empty<System.Net.IPAddress>(), false, false);
+                Show(DeviceMerger.Preview(store, partial, oui, DateTimeOffset.Now));
+            }
+            var fraction = p.Total == 0 ? 1 : (double)p.Done / p.Total;
+            if (p.Stage == Scanner.FindingStage)
+            {
+                ScanText = $"Checking {p.Done} of {p.Total} addresses · {found} found";
+                Progress = 0.85 * fraction;
+            }
+            else if (p.Stage == Scanner.NamesStage)
+            {
+                ScanText = $"Looking up names · {found} found";
+                Progress = 0.85 + 0.15 * fraction;
+            }
         });
 
         try
@@ -229,24 +271,36 @@ public partial class MainViewModel : ObservableObject
                 .OfType<System.Net.IPAddress>()
                 .ToList();
             var result = await new Scanner(new WindowsProbes()).ScanAsync(net, progress, scanCts.Token, retry);
+            live = false;
+            Progress = 1;
             var statuses = DeviceMerger.Merge(store, result, oui, DateTimeOffset.Now);
             UpstreamRouters = result.UpstreamRouters.Select(a => a.ToString()).ToList();
             UpstreamCount = UpstreamRouters.Count;
             lastScan = DateTimeOffset.Now;
-            UpdateNetworkText();
             Show(statuses);
             UpdateCounts(result);
+            var seconds = clock.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture);
+            var count = result.Devices.Count;
+            ScanText = result.Cancelled
+                ? $"Stopped after {seconds} s · {count} found"
+                : $"Found {count} {(count == 1 ? "device" : "devices")} in {seconds} s · {lastScan.Value.ToLocalTime():HH:mm}";
             TrySave();
         }
         catch (Exception e)
         {
+            live = false;
+            scanError = e.Message;
+            Show(shown);
             StatusText = "Scan failed: " + e.Message;
+            ScanText = "";
         }
         finally
         {
+            live = false;
             IsScanning = false;
             scanCts.Dispose();
             scanCts = null;
+            UpdateEmpty();
         }
     }
 
@@ -266,10 +320,48 @@ public partial class MainViewModel : ObservableObject
     {
         shown = statuses;
         var selectedKey = Selected?.Key;
-        Devices.Clear();
-        foreach (var s in statuses) Devices.Add(new DeviceItem(s));
+        var items = statuses.Select(s => new DeviceItem(s, live)).ToList();
+        var keys = items.Select(i => i.Key).ToHashSet();
+        if (keys.Count != items.Count) Devices.Clear();
+        for (var i = Devices.Count - 1; i >= 0; i--)
+            if (!keys.Contains(Devices[i].Key)) Devices.RemoveAt(i);
+        foreach (var item in items)
+        {
+            var index = Devices.Select(d => d.Key).ToList().IndexOf(item.Key);
+            if (index >= 0 && keys.Count == items.Count) Devices[index] = item;
+            else Devices.Add(item);
+        }
         Selected = Devices.FirstOrDefault(d => d.Key == selectedKey);
         UpdateCounts(null);
+    }
+
+    void UpdateEmpty()
+    {
+        IsEmpty = Devices.Count == 0;
+        if (network is null)
+        {
+            EmptyTitle = "No network connection";
+            EmptyText = "Connect to Wi-Fi or Ethernet, then try again.";
+            EmptyButtonText = "Try again";
+        }
+        else if (scanError is not null)
+        {
+            EmptyTitle = "Scan failed";
+            EmptyText = scanError;
+            EmptyButtonText = "Try again";
+        }
+        else if (IsScanning)
+        {
+            EmptyTitle = "Looking for devices";
+            EmptyText = $"Checking every address on {NetworkTitle}.";
+            EmptyButtonText = null;
+        }
+        else
+        {
+            EmptyTitle = "No devices yet";
+            EmptyText = $"Scan to find the devices on {NetworkTitle}.";
+            EmptyButtonText = "Scan";
+        }
     }
 
     void UpdateCounts(ScanResult? result)
@@ -285,5 +377,6 @@ public partial class MainViewModel : ObservableObject
         }
         if (result is { Cancelled: true }) text += "  (stopped)";
         StatusText = text;
+        UpdateEmpty();
     }
 }

@@ -61,7 +61,7 @@ public sealed class NullToVisibility : IValueConverter
     NullToVisibility(bool visibleWhenNull) => this.visibleWhenNull = visibleWhenNull;
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        (value is null) == visibleWhenNull ? Visibility.Visible : Visibility.Collapsed;
+        (value is null or "") == visibleWhenNull ? Visibility.Visible : Visibility.Collapsed;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException();

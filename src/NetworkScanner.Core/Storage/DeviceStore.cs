@@ -81,6 +81,8 @@ public sealed class DeviceStore
         File.Move(tmp, path, true);
     }
 
+    public DeviceStore Copy() => JsonSerializer.Deserialize<DeviceStore>(JsonSerializer.Serialize(this, Json), Json)!;
+
     public KnownNetwork? Find(string? gatewayMac, string gatewayIp, int prefixLength) =>
         (gatewayMac is null ? null : Networks.FirstOrDefault(n => n.GatewayMac == gatewayMac))
         ?? Networks.FirstOrDefault(n => n.GatewayIp == gatewayIp && n.PrefixLength == prefixLength);
